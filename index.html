@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full w-full overflow-hidden">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>BusTalk Info Pasajeros_v 2.1.1</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- FIREBASE SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <!-- MANIFEST PWA -->
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+    <meta name="theme-color" content="#121212">
+
+    <style>
+        [x-cloak] { display: none !important; }
+        body { background-color: #121212; color: #ffffff; user-select: none; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .animate-pulse-slow { animation: pulse-slow 2s infinite; }
+    </style>
+</head>
+<body x-data="busTalkPasajeroApp()" x-init="init()" class="font-sans h-screen flex flex-col overflow-hidden bg-zinc-950 text-white">
+
+    <!-- MOTOR PWA -->
+    <script>
+        // medbasha
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(console.error);
+            });
+        }
+    </script>
+
+    <!-- CABECERA -->
+    <header class="p-3.5 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center flex-shrink-0 shadow-md">
+        <div class="flex items-center space-x-2">
+            <div class="bg-amber-500 text-black font-black p-2 rounded-xl text-lg">
+                <i class="fas fa-bus"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-black italic tracking-tight">Bus<span class="text-amber-500">Talk</span> <span class="text-xs text-zinc-400 not-italic font-normal">Pasajeros</span></h1>
+                <p class="text-[10px] font-bold text-amber-500/90 tracking-wider uppercase">Línea L01 (Menorca)</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <div class="flex items-center gap-1 border border-zinc-800 px-2 py-1 rounded-lg bg-zinc-950">
+                <svg width="12" height="12" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <polygon points="50,5 90,27.5 90,72.5 50,95 10,72.5 10,27.5" stroke="#facc15" stroke-width="8" fill="#121212" />
+                    <text x="50" y="65" font-family="Arial, sans-serif" font-weight="900" font-size="42" fill="#facc15" text-anchor="middle">MB</text>
+                </svg>
+                <span class="text-[9px] font-mono text-zinc-500 tracking-widest font-bold">medbasha</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- CONTENIDO -->
+    <main class="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
+        
+        <!-- SELECTOR DE PARADA DEL USUARIO -->
+        <div class="bg-zinc-900 p-4 rounded-2xl border border-zinc-800 space-y-3 shadow-lg">
+            <label class="text-xs font-black uppercase text-zinc-400 tracking-wider block">
+                <i class="fas fa-map-marker-alt text-amber-500 mr-1.5"></i> Tu Marquesina / Parada de Espera
+            </label>
+            <select x-model="paradaSeleccionada" @change="guardarParada()" class="w-full p-3.5 bg-zinc-950 border border-zinc-700 rounded-xl font-bold text-white outline-none focus:border-amber-500 text-base">
+                <template x-for="p in listaParadas" :key="p">
+                    <option :value="p" x-text="p"></option>
+                </template>
+            </select>
+        </div>
+
+        <!-- RADAR DE AUTOBUSES CON BARRA ESTILO METRO -->
+        <div class="space-y-3">
+            <div class="flex justify-between items-end px-1">
+                <p class="text-xs font-black uppercase tracking-[0.15em] text-zinc-400">Buses en ruta hacia tu zona</p>
+                <p class="text-xs font-black text-amber-500" x-text="busesActivos.length + ' activos'"></p>
+            </div>
+
+            <template x-if="busesActivos.length === 0">
+                <div class="text-center py-12 bg-zinc-900/50 rounded-3xl border border-zinc-800">
+                    <i class="fas fa-satellite-dish text-5xl mb-3 text-zinc-600 animate-pulse"></i>
+                    <p class="font-black text-sm uppercase tracking-widest text-zinc-400">No hay autobuses en marcha</p>
+                    <p class="text-xs text-zinc-600 mt-1">Los datos aparecerán en cuanto los conductores conecten la radio.</p>
+                </div>
+            </template>
+
+            <template x-for="bus in busesActivos" :key="bus.id">
+                <div class="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 shadow-md space-y-4">
+                    <div class="flex justify-between items-start">
+                        <div class="flex items-center gap-2.5">
+                            <span class="bg-amber-500 text-black font-black px-2.5 py-1 rounded-lg text-lg" x-text="bus.id"></span>
+                            <div>
+                                <p class="text-xs font-bold text-zinc-400 uppercase" x-text="bus.linea"></p>
+                                <p class="text-[11px] font-black text-amber-400 uppercase mt-0.5">
+                                    <i class="fas fa-arrow-right mr-1"></i><span x-text="obtenerSentidoTexto(bus)"></span>
+                                </p>
+                                <span x-show="bus.alerta" class="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-[10px] font-black uppercase tracking-wider inline-block mt-1">
+                                    <i class="fas fa-exclamation-triangle mr-1"></i><span x-text="bus.alerta"></span>
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- ESTADO PAX -->
+                        <div class="text-right bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-800">
+                            <p class="text-[9px] uppercase tracking-widest text-zinc-500 font-black">Plazas</p>
+                            <span class="text-sm font-black" :class="bus.pax >= 50 ? 'text-red-400' : 'text-emerald-400'" x-text="bus.pax + ' pax'"></span>
+                        </div>
+                    </div>
+
+                    <!-- BARRA DE RUTA VISUAL ESTILO METRO -->
+                    <div class="bg-zinc-950 p-3.5 rounded-xl border border-zinc-800 space-y-2">
+                        <div class="flex justify-between items-center text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
+                            <span>Progreso del Trayecto</span>
+                            <span class="text-amber-400 font-black" x-text="calcularTiempoEstimado(bus)"></span>
+                        </div>
+
+                        <!-- LÍNEA ESTILO METRO CON NODOS -->
+                        <div class="relative flex items-center justify-between px-2 py-2">
+                            <div class="absolute left-4 right-4 h-1 bg-zinc-800 top-1/2 -translate-y-1/2 z-0"></div>
+
+                            <template x-for="(paradaNombre, idx) in obtenerArrayRutaBus(bus)" :key="paradaNombre">
+                                <div class="relative z-10 flex flex-col items-center">
+                                    <!-- Círculo del nodo -->
+                                    <div class="w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all"
+                                         :class="{
+                                             'bg-emerald-500 border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.8)] scale-125': bus.ubicacion === paradaNombre && bus.enParada,
+                                             'bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.8)] scale-110': bus.ubicacion === paradaNombre && !bus.enParada,
+                                             'bg-zinc-900 border-zinc-700': bus.ubicacion !== paradaNombre && !esParadaPasada(bus, paradaNombre),
+                                             'bg-zinc-700 border-zinc-600': esParadaPasada(bus, paradaNombre)
+                                         }">
+                                        <template x-if="bus.ubicacion === paradaNombre">
+                                            <div class="w-1.5 h-1.5 rounded-full bg-black"></div>
+                                        </template>
+                                    </div>
+                                    <!-- Nombre de la marquesina -->
+                                    <span class="text-[9px] font-black uppercase mt-1.5 text-center whitespace-nowrap"
+                                          :class="{
+                                              'text-amber-400 font-black': paradaSeleccionada === paradaNombre,
+                                              'text-white': bus.ubicacion === paradaNombre,
+                                              'text-zinc-500': paradaSeleccionada !== paradaNombre && bus.ubicacion !== paradaNombre
+                                          }"
+                                          x-text="paradaNombre"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- ESTADO TEXTUAL -->
+                    <div class="flex justify-between items-center text-xs px-1 text-zinc-300">
+                        <p class="font-bold flex items-center gap-1.5">
+                            <template x-if="bus.enParada">
+                                <span><i class="fas fa-parking text-emerald-400"></i> Detenido en: <strong class="text-white" x-text="bus.ubicacion"></strong></span>
+                            </template>
+                            <template x-if="!bus.enParada">
+                                <span><i class="fas fa-route text-amber-500"></i> En movimiento: <strong class="text-white" x-text="bus.tramo || bus.ubicacion"></strong></span>
+                            </template>
+                        </p>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyC7b6_T0ze2HgXiYHfvUeL12JSXE7ZKogc",
+            authDomain: "misturnos-fe3ea.firebaseapp.com",
+            databaseURL: "https://misturnos-fe3ea-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "misturnos-fe3ea",
+            storageBucket: "misturnos-fe3ea.firebasestorage.app",
+            messagingSenderId: "1029095925443",
+            appId: "1:1029095925443:web:873240d85ac5160f392476"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        const idb = {
+            db: null,
+            async init() {
+                if(this.db) return this.db;
+                return new Promise((resolve, reject) => {
+                    const req = indexedDB.open("BusTalkPasajeroDB", 2);
+                    req.onupgradeneeded = e => {
+                        let db = e.target.result;
+                        if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings");
+                    };
+                    req.onsuccess = e => { this.db = e.target.result; resolve(this.db); };
+                    req.onerror = e => reject(e.target.error);
+                });
+            },
+            async get(key) {
+                const db = await this.init();
+                return new Promise(resolve => {
+                    const tx = db.transaction("settings", "readonly");
+                    const req = tx.objectStore("settings").get(key);
+                    req.onsuccess = () => resolve(req.result); req.onerror = () => resolve(null);
+                });
+            },
+            async set(key, val) {
+                const db = await this.init();
+                return new Promise(resolve => {
+                    const tx = db.transaction("settings", "readwrite");
+                    tx.objectStore("settings").put(val, key);
+                    tx.oncomplete = () => resolve();
+                });
+            }
+        };
+
+        function busTalkPasajeroApp() {
+            return {
+                paradaSeleccionada: 'Alaior C.',
+                listaParadas: ["Ciu", "Ferr", "Mer", "Alaior C.", "Alaior P.", "Argen", "Maó"],
+                busesActivos: [],
+
+                tiemposTramos: {
+                    "Ciu-Ferr": 20, "Ferr-Mer": 10, "Mer-Alaior C.": 10, "Alaior C.-Alaior P.": 3, "Alaior P.-Argen": 5, "Argen-Maó": 12,
+                    "Maó-Argen": 12, "Argen-Alaior P.": 5, "Alaior P.-Alaior C.": 3, "Alaior C.-Mer": 10, "Mer-Ferr": 10, "Ferr-Ciu": 20
+                },
+
+                async init() {
+                    if (navigator.storage && navigator.storage.persist) {
+                        await navigator.storage.persist();
+                    }
+
+                    const params = new URLSearchParams(window.location.search);
+                    const qParada = params.get('parada');
+                    if (qParada && this.listaParadas.includes(qParada)) {
+                        this.paradaSeleccionada = qParada;
+                    } else {
+                        const guardada = await idb.get('mi_parada_preferida');
+                        if (guardada) this.paradaSeleccionada = guardada;
+                    }
+
+                    this.conectarEscuchaFirebase();
+                },
+
+                async guardarParada() {
+                    await idb.set('mi_parada_preferida', this.paradaSeleccionada);
+                },
+
+                conectarEscuchaFirebase() {
+                    // LECTURA 100% DIRECTA: Muestra absolutamente todos los buses que existan en bustalk_buses
+                    db.collection("bustalk_buses").onSnapshot(snap => {
+                        const lista = [];
+                        snap.forEach(doc => {
+                            const data = doc.data();
+                            if (data.timestamp > Date.now() - (3 * 60 * 60 * 1000)) {
+                                lista.push({ id: doc.id, ...data });
+                            }
+                        });
+                        this.busesActivos = lista;
+                    }, err => {
+                        console.error("Error al leer Firestore:", err);
+                    });
+                },
+
+                obtenerArrayRutaBus(bus) {
+                    let rutaIda = ["Ciu", "Ferr", "Mer", "Alaior C.", "Alaior P.", "Argen", "Maó"];
+                    let rutaVuelta = ["Maó", "Argen", "Alaior P.", "Alaior C.", "Mer", "Ferr", "Ciu"];
+                    return (bus.sentido === 'vuelta' || (bus.linea && bus.linea.includes('Maó - Ciu'))) ? rutaVuelta : rutaIda;
+                },
+
+                obtenerSentidoTexto(bus) {
+                    let esVuelta = (bus.sentido === 'vuelta' || (bus.linea && bus.linea.includes('Maó - Ciu')));
+                    return esVuelta ? "Hacia Ciutadella" : "Hacia Maó";
+                },
+
+                esParadaPasada(bus, paradaNombre) {
+                    let ruta = this.obtenerArrayRutaBus(bus);
+                    let idxBus = ruta.indexOf(bus.ubicacion);
+                    let idxParada = ruta.indexOf(paradaNombre);
+                    return (idxBus !== -1 && idxParada !== -1 && idxParada < idxBus);
+                },
+
+                calcularTiempoEstimado(bus) {
+                    let ubicacionBus = bus.ubicacion;
+                    let paradaUsuario = this.paradaSeleccionada;
+
+                    if (!ubicacionBus) return "En ruta";
+
+                    if (ubicacionBus === paradaUsuario && bus.enParada) {
+                        return "¡En tu parada!";
+                    }
+
+                    let rutaOrden = this.obtenerArrayRutaBus(bus);
+                    let idxBus = rutaOrden.indexOf(ubicacionBus);
+                    let idxUsuario = rutaOrden.indexOf(paradaUsuario);
+
+                    if (idxBus === -1 || idxUsuario === -1 || idxBus >= idxUsuario) {
+                        if (bus.eta) {
+                            let minutosRestantes = Math.ceil((bus.eta - Date.now()) / 60000);
+                            return minutosRestantes > 0 ? minutosRestantes + " min" : "Próximo";
+                        }
+                        return "En camino...";
+                    }
+
+                    let minutosTotales = 0;
+                    for (let i = idxBus; i < idxUsuario; i++) {
+                        let tramoKey = `${rutaOrden[i]}-${rutaOrden[i+1]}`;
+                        minutosTotales += (this.tiemposTramos[tramoKey] || 10);
+                    }
+
+                    return minutosTotales + " min";
+                }
+            }
+        }
+    </script>
+</body>
+</html>
